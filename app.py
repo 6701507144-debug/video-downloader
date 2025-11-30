@@ -266,6 +266,95 @@ with tab1:
             except Exception as e:
                 status_placeholder.error(f"❌ เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
 
+
+
+# --- 6. ฟังก์ชันจัดการดาวน์โหลดผ่าน Server (สำหรับ Tab 2) ---
+def handle_server_download(url, server_quality, cookie_path, IS_FFMPEG_READY):
+    # ตรวจสอบ URL
+    if not url:
+        st.error("⚠️ กรุณาใส่ลิงก์วิดีโอก่อนครับ")
+        return # return ในฟังก์ชันนี้ใช้ได้
+
+    DOWNLOAD_FOLDER = "downloads"
+    status_placeholder_server = st.empty()
+    progress_bar = st.progress(0)
+    
+    # progress_hook สำหรับอัปเดตสถานะแบบ Real-time (โค้ดเดิม)
+    def progress_hook(d):
+        if d['status'] == 'downloading':
+            try:
+                p = d.get('_percent_str', '0%').replace('%','').strip()
+                speed = d.get('_speed_str', 'N/A')
+                eta = d.get('_eta_str', 'N/A')
+                if p.replace('.', '', 1).isdigit():
+                    progress_bar.progress(int(float(p)))
+                    status_placeholder_server.info(f"⚡ กำลังโหลด: {p}% | Speed: {speed} | ETA: {eta}")
+            except ValueError:
+                pass
+        elif d['status'] == 'finished':
+            progress_bar.progress(100)
+            status_placeholder_server.success("✅ ดาวน์โหลดเสร็จสิ้น! กำลังรวมไฟล์...")
+
+    ydl_opts_server = {
+        'outtmpl': f'{DOWNLOAD_FOLDER}/%(title)s.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+        'user_agent': get_random_user_agent(),
+        'nocheckcertificate': True,
+        'progress_hooks': [progress_hook],
+    }
+    if cookie_path: ydl_opts_server['cookiefile'] = cookie_path
+    
+    # กำหนด format ตามคุณภาพที่เลือก (Logic ที่มี return ถูกย้ายมาที่นี่)
+    if server_quality == "Best (4K/8K ถ้ามี - ต้องมี FFmpeg)":
+        if IS_FFMPEG_READY: ydl_opts_server['format'] = 'bestvideo+bestaudio/best'
+        else: st.error("❌ โหมดนี้ต้องมี FFmpeg ครับ"); return
+    elif server_quality == "1080p (Full HD - ต้องมี FFmpeg)":
+        if IS_FFMPEG_READY: ydl_opts_server['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+        else: st.error("❌ โหมดนี้ต้องมี FFmpeg ครับ"); return
+    elif server_quality == "720p (HD - ปลอดภัย)":
+        ydl_opts_server['format'] = 'best[ext=mp4][height<=720]/best[ext=mp4]/best'
+    elif server_quality == "Audio Only (MP3)":
+        ydl_opts_server['format'] = 'bestaudio/best'
+        if IS_FFMPEG_READY: ydl_opts_server['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192',}]
+        else: st.warning("💡 ไม่มี FFmpeg จะได้ไฟล์เสียงนามสกุล .webm/.m4a แทน MP3 ครับ")
+
+    # ส่วน Try/Except ที่เหลือ (Logic โหลดไฟล์จริง)
+    try:
+        # ... (Logic การดาวน์โหลด yt-dlp และการสร้างปุ่ม download_button) ...
+        
+        with yt_dlp.YoutubeDL(ydl_opts_server) as ydl:
+            status_placeholder_server.info("🔥 เริ่มดาวน์โหลดและรวมไฟล์...")
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+
+            # ... (ตรวจสอบชื่อไฟล์) ...
+            if not os.path.exists(filename):
+                base = os.path.splitext(filename)[0]
+                for f in os.listdir(DOWNLOAD_FOLDER):
+                    if base in os.path.join(DOWNLOAD_FOLDER, f):
+                        filename = os.path.join(DOWNLOAD_FOLDER, f)
+                        break
+        
+        status_placeholder_server.success("✅ ดาวน์โหลดเสร็จสมบูรณ์! คลิกปุ่มด้านล่างเพื่อรับไฟล์")
+        st.markdown("---")
+        with open(filename, "rb") as f:
+            st.download_button("⬇️ รับไฟล์เข้าเครื่อง", f, file_name=os.path.basename(filename), mime="application/octet-stream", use_container_width=True)
+        
+        # ลบไฟล์
+        st.info("ไฟล์จะถูกลบออกจาก Server เพื่อประหยัดพื้นที่")
+        os.remove(filename)
+
+    except yt_dlp.DownloadError as e:
+        status_placeholder_server.error(f"❌ yt-dlp Error: {e}")
+        # ... (คำแนะนำ Error ที่เหลือ) ...
+    except Exception as e:
+        status_placeholder_server.error(f"❌ เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
+    finally:
+        progress_bar.empty()
+        status_placeholder_server.empty()
+
+
 # ==========================================
 # 📍 TAB 2: Server Download (สำรอง & สำหรับ PC)
 # ==========================================
@@ -273,95 +362,11 @@ with tab2:
     st.markdown("<div class='info-card'><p>💾 <b>โหมดดาวน์โหลดผ่าน Server:</b> Server ของเราจะดาวน์โหลดไฟล์วิดีโอมาเก็บไว้ชั่วคราว แล้วส่งให้คุณเป็นไฟล์</p><p class='small-text'>โหมดนี้เหมาะสำหรับ: <b>PC ของคุณเอง (แรงกว่า)</b> หรือใช้เป็นตัวเลือกสำรองเมื่อโหมด Link Generator ไม่ได้ผล</p></div>", unsafe_allow_html=True)
     
     st.markdown("<h5>เลือกคุณภาพที่ต้องการ (ต้องมี FFmpeg สำหรับ 1080p/4K):</h5>", unsafe_allow_html=True)
+    # radio button ต้องประกาศไว้ด้านนอกปุ่มเพื่อให้ค่าคงอยู่
     server_quality = st.radio(" ", 
         ("Best (4K/8K ถ้ามี - ต้องมี FFmpeg)", "1080p (Full HD - ต้องมี FFmpeg)", "720p (HD - ปลอดภัย)", "Audio Only (MP3)"),
         key='server_download_quality_radio')
 
     if st.button("🚀 เริ่มดาวน์โหลดผ่าน Server", use_container_width=True):
-        if not url:
-            st.error("⚠️ กรุณาใส่ลิงก์วิดีโอก่อนครับ")
-        else:
-            status_placeholder_server = st.empty()
-            progress_bar = st.progress(0)
-            
-            # progress_hook สำหรับอัปเดตสถานะแบบ Real-time
-            def progress_hook(d):
-                if d['status'] == 'downloading':
-                    try:
-                        p = d.get('_percent_str', '0%').replace('%','').strip()
-                        speed = d.get('_speed_str', 'N/A')
-                        eta = d.get('_eta_str', 'N/A')
-                        if p.replace('.', '', 1).isdigit(): # ตรวจสอบว่าเป็นตัวเลขก่อนแปลง
-                            progress_bar.progress(int(float(p)))
-                            status_placeholder_server.info(f"⚡ กำลังโหลด: {p}% | Speed: {speed} | ETA: {eta}")
-                    except ValueError:
-                        pass # Ignore if percent_str is not a valid number
-                elif d['status'] == 'finished':
-                    progress_bar.progress(100)
-                    status_placeholder_server.success("✅ ดาวน์โหลดเสร็จสิ้น! กำลังรวมไฟล์...")
-
-            ydl_opts_server = {
-                'outtmpl': f'{DOWNLOAD_FOLDER}/%(title)s.%(ext)s',
-                'quiet': True,
-                'no_warnings': True,
-                'user_agent': get_random_user_agent(),
-                'nocheckcertificate': True,
-                'progress_hooks': [progress_hook], # เพิ่ม Progress Bar
-            }
-            if cookie_path: ydl_opts_server['cookiefile'] = cookie_path
-            
-            # กำหนด format ตามคุณภาพที่เลือก
-            if server_quality == "Best (4K/8K ถ้ามี - ต้องมี FFmpeg)":
-                if IS_FFMPEG_READY: ydl_opts_server['format'] = 'bestvideo+bestaudio/best'
-                else: st.error("❌ โหมดนี้ต้องมี FFmpeg ครับ"); return
-            elif server_quality == "1080p (Full HD - ต้องมี FFmpeg)":
-                if IS_FFMPEG_READY: ydl_opts_server['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
-                else: st.error("❌ โหมดนี้ต้องมี FFmpeg ครับ"); return
-            elif server_quality == "720p (HD - ปลอดภัย)":
-                ydl_opts_server['format'] = 'best[ext=mp4][height<=720]/best[ext=mp4]/best' # Safe format without merge
-            elif server_quality == "Audio Only (MP3)":
-                ydl_opts_server['format'] = 'bestaudio/best'
-                if IS_FFMPEG_READY: ydl_opts_server['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192',}]
-                else: st.warning("💡 ไม่มี FFmpeg จะได้ไฟล์เสียงนามสกุล .webm/.m4a แทน MP3 ครับ")
-
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts_server) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    filename = ydl.prepare_filename(info)
-
-                    # Fix: บางทีชื่อไฟล์เปลี่ยน หรือหาไม่เจอ
-                    if not os.path.exists(filename):
-                        base = os.path.splitext(filename)[0]
-                        for f in os.listdir(DOWNLOAD_FOLDER):
-                            if base in os.path.join(DOWNLOAD_FOLDER, f):
-                                filename = os.path.join(DOWNLOAD_FOLDER, f)
-                                break
-                
-                status_placeholder_server.success("✅ ดาวน์โหลดเสร็จสมบูรณ์! คลิกปุ่มด้านล่างเพื่อรับไฟล์")
-                st.markdown("---")
-                with open(filename, "rb") as f:
-                    st.download_button("⬇️ รับไฟล์เข้าเครื่อง", f, file_name=os.path.basename(filename), mime="application/octet-stream", use_container_width=True)
-                
-                # ลบไฟล์หลังดาวน์โหลดเพื่อประหยัดพื้นที่ Cloud/PC
-                st.info("ไฟล์จะถูกลบออกจาก Server เพื่อประหยัดพื้นที่")
-                os.remove(filename)
-
-            except yt_dlp.DownloadError as e:
-                status_placeholder_server.error(f"❌ yt-dlp Error: {e}")
-                if "age-restricted" in str(e).lower() or "login" in str(e).lower():
-                    st.warning("💡 คลิปนี้อาจถูกจำกัดอายุ/ต้องเข้าสู่ระบบ ลองอัปโหลด Cookies ดูครับ")
-                elif "Private video" in str(e):
-                    st.warning("💡 คลิปนี้เป็นส่วนตัว ลองอัปโหลด Cookies ดูครับ")
-                elif "403 Forbidden" in str(e):
-                    st.warning("💡 Server อาจโดนบล็อก IP ลองอัปโหลด Cookies ดูครับ")
-            except Exception as e:
-                status_placeholder_server.error(f"❌ เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
-            finally:
-                progress_bar.empty() # Clear progress bar
-                status_placeholder_server.empty() # Clear final status
-                # รีเซ็ตสถานะปุ่มและ Progress Bar
-                
-# --- Cleanup Cookies (ลบไฟล์ Cookies ชั่วคราวหลังใช้งาน) ---
-if cookie_path and os.path.exists(cookie_path):
-    st.sidebar.info("ลบไฟล์ Cookies ชั่วคราว...")
-    os.remove(cookie_path)
+        # เรียกฟังก์ชันใหม่ พร้อมส่งตัวแปรที่จำเป็นเข้าไป
+        handle_server_download(url, server_quality, cookie_path, IS_FFMPEG_READY)
