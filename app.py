@@ -3,117 +3,79 @@ import yt_dlp
 import os
 import time
 
-# --- 1. ตั้งค่าหน้าเว็บ ---
-st.set_page_config(page_title="PC Master Downloader", page_icon="💻", layout="wide")
-st.title("💻 PC High-Performance Downloader")
-st.caption("โหมดประสิทธิภาพสูง: Multi-thread + FFmpeg (4K/8K Ready)")
+st.set_page_config(page_title="Cloud Safe Downloader", page_icon="☁️")
+st.title("☁️ Cloud Safe Downloader")
+st.caption("โหมดปลอดภัยสำหรับรันบน Server (ไม่มี FFmpeg)")
 
-# โฟลเดอร์เก็บไฟล์
 download_folder = "downloads"
 if not os.path.exists(download_folder):
     os.makedirs(download_folder)
 
-# --- 2. ตั้งค่า Cookies (สำหรับเฟส/กลุ่มปิด) ---
-with st.expander("🍪 ตั้งค่า Cookies (ใช้ไฟล์ในเครื่องได้เลย)"):
-    # บน PC เราสามารถเลือกไฟล์จากเครื่องได้ง่ายๆ หรือจะพิมพ์ชื่อไฟล์ก็ได้
-    cookie_file = st.text_input("ระบุชื่อไฟล์ Cookies (เช่น fb.txt):", value="cookies.txt")
+# --- 1. ส่วน Cookies ---
+with st.expander("🍪 อัปโหลด Cookies (แก้ปัญหาโหลดไม่ได้)"):
+    uploaded_cookie = st.file_uploader("ลากไฟล์ cookies.txt มาวาง", type=['txt'])
+    cookie_path = None
+    if uploaded_cookie:
+        cookie_path = f"temp_cookie_{int(time.time())}.txt"
+        with open(cookie_path, "wb") as f:
+            f.write(uploaded_cookie.getbuffer())
+        st.success("✅ Cookies พร้อมใช้งาน")
+
+# --- 2. รับลิงก์ ---
+url = st.text_input("🔗 Link URL:")
+
+# --- 3. ฟังก์ชันโหลด ---
+def download_safe():
+    if not url: return
+
+    status = st.empty()
+    status.info("⏳ กำลังเชื่อมต่อ...")
     
-    # เช็คว่ามีไฟล์จริงไหม
-    has_cookie = os.path.exists(cookie_file)
-    if has_cookie:
-        st.success(f"✅ ตรวจพบไฟล์: {cookie_file} พร้อมใช้งาน!")
-    else:
-        st.warning("⚠️ ยังไม่พบไฟล์ Cookies ในโฟลเดอร์ (ถ้าจะโหลด Private ต้องมี)")
-
-# --- 3. ส่วนรับลิงก์ ---
-col1, col2 = st.columns([3, 1])
-with col1:
-    url = st.text_input("🔗 Link URL:")
-with col2:
-    # เลือกความละเอียด (บน PC เอาให้สุด)
-    res_option = st.selectbox("คุณภาพ:", 
-        ("Best Available (ชัดสุดที่มี 4K/8K)", 
-         "1080p (Full HD)", 
-         "720p (HD - โหลดไว)", 
-         "Audio Only (MP3)"))
-
-# --- 4. ฟังก์ชันโหลดแบบ Turbo PC ---
-def download_pc():
-    if not url:
-        st.warning("⚠️ ใส่ลิงก์ก่อนครับ")
-        return
-
-    status_box = st.info("🚀 กำลังเริ่มระบบ Multi-thread...")
-    progress_bar = st.progress(0)
-    
-    # ฟังก์ชันสำหรับอัปเดตหลอดโหลด (Hook)
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            try:
-                # คำนวณเปอร์เซ็นต์
-                p = d.get('_percent_str', '0%').replace('%','')
-                progress_bar.progress(float(p) / 100)
-                status_box.write(f"⚡ Speed: {d.get('_speed_str')} | ETA: {d.get('_eta_str')}")
-            except:
-                pass
-        elif d['status'] == 'finished':
-            status_box.success("✅ ดาวน์โหลดเสร็จสิ้น! กำลังรวมไฟล์ (Merge)...")
-            progress_bar.progress(100)
-
-    # --- การตั้งค่าที่แรงที่สุด (Optimized for PC) ---
+    # การตั้งค่าแบบปลอดภัยที่สุด (ไม่ใช้ FFmpeg, ไม่เร่ง Speed เกินไป)
     ydl_opts = {
         'outtmpl': f'{download_folder}/%(title)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
-        'progress_hooks': [progress_hook],
         
-        # 1. เปิดท่อดูด 8 ท่อพร้อมกัน (เหมือน IDM)
-        'concurrent_fragment_downloads': 8,
+        # สูตร: เอาไฟล์ MP4 ที่มีอยู่แล้ว (ไม่ต้อง Merge) ไม่เกิน 720p
+        'format': 'best[ext=mp4][height<=720]/best[ext=mp4]/best',
         
-        # 2. ตั้งค่า Buffer ให้เขียนลง Disk ไวขึ้น
-        'buffersize': 1024 * 1024, # 1MB buffer
-        'retries': 10, # ถ้าเน็ตหลุด ให้ลองใหม่ 10 รอบ
-        'fragment_retries': 10,
-
-        # 3. บอกตำแหน่ง FFmpeg (ถ้าใส่ไว้ในโฟลเดอร์เดียวกัน)
-        'ffmpeg_location': os.getcwd(),
-        
-        # ปลอมตัวเนียนๆ
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        # ปลอมตัวเป็น Android (บางทีหลบ Facebook ได้ดีกว่า Windows)
+        'user_agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36',
     }
 
-    # ใส่ Cookies
-    if has_cookie:
-        ydl_opts['cookiefile'] = cookie_file
+    if cookie_path:
+        ydl_opts['cookiefile'] = cookie_path
 
-    # เลือกคุณภาพ
-    if res_option == "Audio Only (MP3)":
-        ydl_opts['format'] = 'bestaudio/best'
-        ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '320',}]
-    
-    elif res_option == "1080p (Full HD)":
-        # เลือกชัดสุดที่ไม่เกิน 1080p + เสียงที่ดีที่สุด
-        ydl_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
-    
-    elif res_option == "720p (HD - โหลดไว)":
-        ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
-        
-    else: # Best Available
-        # เอาชัดสุดเท่าที่มีในโลก (4K/8K)
-        ydl_opts['format'] = 'bestvideo+bestaudio/best'
-
-    # เริ่มโหลด
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.extract_info(url, download=True)
+            status.info("🚀 กำลังดาวน์โหลด...")
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
             
-        st.balloons()
-        status_box.success(f"🎉 เรียบร้อย! ไฟล์อยู่ในโฟลเดอร์: {os.path.abspath(download_folder)}")
-        
-    except Exception as e:
-        status_box.error(f"❌ Error: {e}")
-        st.error("💡 ถ้าโหลดคุณภาพสูงไม่ได้ เช็คว่ามีไฟล์ ffmpeg.exe ในโฟลเดอร์หรือยัง?")
+            # กันเหนียวเผื่อชื่อไฟล์เพี้ยน
+            if not os.path.exists(filename):
+                base = os.path.splitext(filename)[0]
+                for f in os.listdir(download_folder):
+                    if base in os.path.join(download_folder, f):
+                        filename = os.path.join(download_folder, f)
+                        break
 
-# ปุ่มกด
-if st.button("🚀 IGNITE DOWNLOAD (PC POWER)", type="primary"):
-    download_pc()
+        status.success("✅ เสร็จแล้ว!")
+        
+        # ปุ่มรับไฟล์
+        with open(filename, "rb") as f:
+            st.download_button("⬇️ รับไฟล์เข้ามือถือ", f, file_name=os.path.basename(filename))
+            
+    except Exception as e:
+        # แสดง Error ชัดๆ ว่าเป็นอะไร
+        status.error(f"❌ Error: {e}")
+        if "HTTP Error 403" in str(e) or "HTTP Error 404" in str(e):
+            st.warning("💡 คำแนะนำ: Facebook บล็อก IP ของ Cloud ครับ -> ลองอัปโหลด cookies.txt จะช่วยได้ 80%")
+
+    # ล้างไฟล์ขยะ
+    if cookie_path and os.path.exists(cookie_path):
+        os.remove(cookie_path)
+
+if st.button("Start Download"):
+    download_safe()
