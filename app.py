@@ -1,180 +1,367 @@
 import streamlit as st
 import yt_dlp
 import os
+import shutil
 import time
-import random
+import subprocess # ใช้สำหรับเปิดโฟลเดอร์บน PC
+import random # สำหรับสุ่ม User-Agent
 
-# --- 1. การตั้งค่าหน้าเว็บและสไตล์ ---
-st.set_page_config(page_title="Hybrid Ultimate Downloader", page_icon="💎", layout="centered")
+# --- 1. การตั้งค่าหน้าเว็บและการออกแบบ UI (CSS Global Styling) ---
+st.set_page_config(page_title="CodeX: Omniversal Downloader", page_icon="💎", layout="wide")
 
-# CSS ตกแต่งปุ่มให้กดง่ายๆ
+# Custom CSS for a modern, clean, and interactive UI
 st.markdown("""
 <style>
-    .big-btn {
-        display: inline-block;
-        width: 100%;
-        padding: 15px;
-        font-size: 20px;
-        font-weight: bold;
-        color: white;
-        background-color: #FF4B4B;
-        text-align: center;
-        text-decoration: none;
-        border-radius: 10px;
-        margin-top: 10px;
-    }
-    .big-btn:hover {
-        background-color: #FF0000;
-        color: white;
-    }
-    .info-box {
+    /* General Font and Background */
+    body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f6; color: #333; }
+    h1, h2, h3, h4, h5, h6 { color: #2e8b57; } /* SeaGreen for headers */
+
+    /* Main Container */
+    .stApp {
         background-color: #f0f2f6;
-        padding: 15px;
+        padding-top: 20px;
+    }
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        padding-left: 3rem;
+        padding-right: 3rem;
+    }
+
+    /* Input Fields */
+    .stTextInput>div>div>input {
+        border-radius: 0.5rem;
+        border: 1px solid #ccc;
+        padding: 0.75rem 1rem;
+        font-size: 1.1rem;
+    }
+    .stTextArea>div>div>textarea {
+        border-radius: 0.5rem;
+        border: 1px solid #ccc;
+        padding: 0.75rem 1rem;
+        font-size: 1.1rem;
+    }
+
+    /* Buttons */
+    .stButton>button {
+        background-color: #2e8b57; /* SeaGreen */
+        color: white;
+        border-radius: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        font-size: 1.1rem;
+        font-weight: bold;
+        border: none;
+        transition: background-color 0.2s;
+    }
+    .stButton>button:hover {
+        background-color: #24804c; /* Darker SeaGreen on hover */
+        color: white;
+    }
+    .stDownloadButton>button { /* For download button */
+        background-color: #1e90ff; /* DodgerBlue */
+        color: white;
+        border-radius: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        font-size: 1.1rem;
+        font-weight: bold;
+        border: none;
+        transition: background-color 0.2s;
+    }
+    .stDownloadButton>button:hover {
+        background-color: #1a7ae0; /* Darker DodgerBlue */
+        color: white;
+    }
+
+    /* Expander / Sidebar */
+    .streamlit-expanderHeader {
+        background-color: #e0f2f7; /* Light Blue */
+        border-radius: 0.5rem;
+        padding: 0.5rem 1rem;
+        font-weight: bold;
+        color: #007bff; /* Blue text */
+    }
+    .streamlit-expanderContent {
+        background-color: #ffffff;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        border: 1px solid #eee;
+    }
+
+    /* Status Messages */
+    .stAlert {
+        border-radius: 0.5rem;
+        font-size: 1rem;
+        padding: 1rem;
+    }
+    .stAlert.info { background-color: #e6f7ff; border-left: 5px solid #007bff; color: #004085; }
+    .stAlert.success { background-color: #e6ffed; border-left: 5px solid #28a745; color: #155724; }
+    .stAlert.warning { background-color: #fff3e6; border-left: 5px solid #ffc107; color: #856404; }
+    .stAlert.error { background-color: #ffe6e6; border-left: 5px solid #dc3545; color: #721c24; }
+
+    /* Progress Bar */
+    .stProgress > div > div > div > div {
+        background-color: #2e8b57; /* SeaGreen */
+    }
+
+    /* Custom Cards for Info */
+    .info-card {
+        background-color: #ffffff;
+        padding: 20px;
         border-radius: 10px;
-        border-left: 5px solid #FF4B4B;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+    }
+    .small-text {
+        font-size: 0.85em;
+        color: #666;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💎 Hybrid Ultimate Downloader")
-st.caption("ระบบอัจฉริยะ: ดึงลิงก์ตรง (ไวสุด) + ดาวน์โหลดผ่านเซิร์ฟเวอร์ (สำรอง)")
+st.title("💎 CodeX: The Omniversal Downloader")
+st.caption("โปรเจกต์ดาวน์โหลดคลิปที่ดีที่สุดในโลก โดย AI โปรแกรมเมอร์")
 
-# --- 2. ระบบจัดการ Cookies (หัวใจสำคัญของ Private Content) ---
+# --- 2. การตั้งค่าเบื้องต้นและโฟลเดอร์ ---
+DOWNLOAD_FOLDER = "downloads"
+if not os.path.exists(DOWNLOAD_FOLDER):
+    os.makedirs(DOWNLOAD_FOLDER)
+
+# ตรวจสอบ FFmpeg (สำหรับ PC)
+FFMPEG_PATH = shutil.which("ffmpeg") or "ffmpeg.exe"
+IS_FFMPEG_READY = os.path.exists(FFMPEG_PATH) or (shutil.which("ffmpeg") is not None)
+
+if not IS_FFMPEG_READY:
+    st.warning("⚠️ ไม่พบ FFmpeg! คุณภาพสูง (1080p+/4K) อาจไม่สามารถรวมภาพ/เสียงได้")
+    st.markdown("ถ้าต้องการโหลดคุณภาพสูง: [📥 ดาวน์โหลด FFmpeg ที่นี่ (สำหรับ Windows)](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip) แล้วนำ `ffmpeg.exe` ไปวางไว้ข้าง `app.py`")
+
+# --- 3. ระบบจัดการ Cookies (สำหรับ Private Content / Facebook) ---
 cookie_path = None
-with st.expander("🍪 Cookies Management (สำหรับคลิปกลุ่มปิด/Facebook/Age-restricted)"):
-    st.info("💡 หากโหลดไม่ได้ หรือติด 403 Forbidden ให้อัปโหลดไฟล์ cookies.txt ที่นี่")
-    uploaded_cookie = st.file_uploader("ลากไฟล์ cookies.txt มาวางตรงนี้", type=['txt'])
+with st.expander("🍪 Cookies & Authentication (สำหรับคลิปกลุ่มปิด/Facebook/Age-restricted)", expanded=False):
+    st.info("💡 หากโหลดไม่ได้ หรือติด 'Login Required' ให้อัปโหลดไฟล์ cookies.txt ที่นี่")
+    uploaded_cookie = st.file_uploader("ลากไฟล์ cookies.txt มาวาง (จะถูกลบทิ้งเมื่อเสร็จงาน)", type=['txt'])
     
     if uploaded_cookie:
-        # สร้างชื่อไฟล์สุ่มเพื่อไม่ให้ชนกัน
-        cookie_path = f"temp_cookie_{int(time.time())}.txt"
+        cookie_path = f"temp_cookie_{int(time.time())}_{random.randint(100,999)}.txt"
         with open(cookie_path, "wb") as f:
             f.write(uploaded_cookie.getbuffer())
-        st.success(f"✅ Cookies พร้อมใช้งาน! (ระบบจะลบเองเมื่อเสร็จงาน)")
+        st.success(f"✅ Cookies '{uploaded_cookie.name}' พร้อมใช้งาน!")
 
-# --- 3. ส่วนรับข้อมูล ---
-url = st.text_input("🔗 Link URL (YouTube, Facebook, TikTok, etc.):")
+# --- 4. ส่วนรับ Link URL ---
+url = st.text_input("🔗 วางลิงก์วิดีโอ (YouTube, Facebook, TikTok, etc.) ที่นี่:", placeholder="ตัวอย่าง: https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 
-# สร้าง Tabs เพื่อแยกโหมดการทำงานให้ชัดเจน
-tab1, tab2 = st.tabs(["🚀 โหมดดึงลิงก์ตรง (ไวที่สุด)", "💾 โหมดโหลดผ่าน Server (สำรอง)"])
+# --- 5. แท็บเลือกโหมดการทำงาน ---
+tab1, tab2 = st.tabs(["🚀 โหมด Link Generator (แนะนำ)", "💾 โหมดดาวน์โหลดผ่าน Server (สำรอง)"])
 
-# --- ฟังก์ชันสุ่ม User Agent (เพื่อความเนียน) ---
-def get_user_agent():
-    agents = [
+# --- ฟังก์ชันสุ่ม User Agent ---
+def get_random_user_agent():
+    user_agents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15',
-        'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+        'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36',
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1',
     ]
-    return random.choice(agents)
+    return random.choice(user_agents)
 
 # ==========================================
-# 📍 TAB 1: Link Extractor (ไวที่สุด)
+# 📍 TAB 1: Link Generator (เร็วที่สุด)
 # ==========================================
 with tab1:
-    st.markdown("<div class='info-box'>โหมดนี้ Server จะไม่โหลดไฟล์ แต่จะไปขุด <b>'ลิงก์จริง'</b> มาให้คุณกด ความเร็วจะเท่ากับเน็ตมือถือของคุณโดยตรง (แนะนำ!)</div>", unsafe_allow_html=True)
-    st.write("")
+    st.markdown("<div class='info-card'><p>🚀 <b>โหมด Link Generator:</b> Server จะไม่ดาวน์โหลดไฟล์ แต่จะ <b>'ขุดหาลิงก์ตรง'</b> ของวิดีโอมาให้คุณคลิกโหลดเองทันที</p><p class='small-text'>นี่คือวิธีที่เร็วที่สุดเพราะไม่ต้องเสียเวลาประมวลผลบน Server ของเรา</p></div>", unsafe_allow_html=True)
     
-    if st.button("🔍 ขุดลิงก์ดาวน์โหลด (Get Link)"):
+    st.markdown("<h5>เลือกคุณภาพที่ต้องการสำหรับลิงก์ตรง:</h5>", unsafe_allow_html=True)
+    link_quality = st.radio(" ", 
+        ("Best Available (ชัดสุด)", "1080p (Full HD)", "720p (HD)", "Audio Only (MP3)"),
+        key='link_gen_quality_radio') # เพิ่ม key เพื่อแก้ Bug Streamlit
+
+    if st.button("🔍 ขุดลิงก์ดาวน์โหลด (Generate Link)", use_container_width=True):
         if not url:
-            st.warning("⚠️ กรุณาใส่ลิงก์ก่อนครับ")
+            st.error("⚠️ กรุณาใส่ลิงก์วิดีโอก่อนครับ")
         else:
-            status = st.empty()
-            status.info("🕵️‍♂️ กำลังเจาะระบบเพื่อหาลิงก์ตรง...")
+            status_placeholder = st.empty()
+            status_placeholder.info("🕵️‍♂️ กำลังแฮกหาลิงก์ดาวน์โหลดตัวจริง... โปรดรอสักครู่")
             
             ydl_opts = {
                 'quiet': True,
                 'no_warnings': True,
-                'user_agent': get_user_agent(),
+                'user_agent': get_random_user_agent(),
+                'nocheckcertificate': True, # เพิ่มความยืดหยุ่นในการเชื่อมต่อ
+                'format': 'best', # Default format
             }
             if cookie_path: ydl_opts['cookiefile'] = cookie_path
 
+            # กำหนด format ตามคุณภาพที่เลือก
+            if link_quality == "1080p (Full HD)":
+                ydl_opts['format'] = 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best'
+            elif link_quality == "720p (HD)":
+                ydl_opts['format'] = 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best'
+            elif link_quality == "Audio Only (MP3)":
+                ydl_opts['format'] = 'bestaudio/best'
+            
+            # Note: Best Available จะใช้ default format 'best' ที่ yt-dlp จะเลือกเอง
+
             try:
+                # download=False คือหัวใจสำคัญของ Link Generator
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    # extract_info(download=False) คือหัวใจของความไว
                     info = ydl.extract_info(url, download=False)
                     
                     video_url = None
-                    title = info.get('title', 'video')
-                    thumb = info.get('thumbnail', '')
-                    
-                    # Logic การหาไฟล์ที่ดีที่สุดที่เล่นได้เลย (มีทั้งภาพและเสียง)
-                    formats = info.get('formats', [])
-                    # เรียงจากชัดน้อยไปมาก
-                    for f in formats:
-                        # เงื่อนไข: ต้องเป็น mp4, มี Video codec, มี Audio codec
-                        if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none':
-                            video_url = f['url']
-                    
-                    # ถ้าหา mp4 ไม่เจอ ให้เอา url หลักเลย (เช่น TikTok มักจะเป็นตัวนี้)
-                    if not video_url:
-                        video_url = info.get('url')
+                    title = info.get('title', 'Unknown Title')
+                    thumbnail = info.get('thumbnail', '')
+                    duration = info.get('duration_string', 'N/A')
+                    uploader = info.get('uploader', 'N/A')
+
+                    # หา URL ที่เหมาะสม
+                    if link_quality == "Audio Only (MP3)":
+                        # สำหรับเสียง yt-dlp มักจะให้ลิงก์ตรงมาเลย
+                        video_url = ydl.prepare_filename(info, 'webm') # ใช้ชื่อกลางเพื่อให้ได้ info['url'] ของ audio
+                        if 'url' in info: video_url = info['url'] # fallback
+                    else:
+                        # พยายามหาไฟล์ MP4 ที่มีทั้งภาพและเสียงในตัว
+                        for f in info.get('formats', []):
+                            if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('ext') == 'mp4':
+                                if (link_quality == "1080p (Full HD)" and f.get('height') <= 1080) or \
+                                   (link_quality == "720p (HD)" and f.get('height') <= 720) or \
+                                   (link_quality == "Best Available"):
+                                    video_url = f['url']
+                                    break # เจอแล้วออกเลย
+
+                        # ถ้าหาแบบ MP4+Audio ไม่เจอ ให้ fallback ไปใช้ลิงก์หลัก (อาจจะภาพแยกเสียง)
+                        if not video_url:
+                            # บางครั้ง info['url'] ก็คือลิงก์ตรงของไฟล์รวมแล้ว
+                            video_url = info.get('url') 
+                            # ลองหาจาก formats อีกทีแบบไม่สน ext เพื่อให้ได้ลิงก์
+                            if not video_url:
+                                for f in info.get('formats', []):
+                                    if f.get('url'):
+                                        video_url = f['url']
+                                        break
+
 
                     if video_url:
-                        status.success("✅ เจอเป้าหมาย!")
-                        col_img, col_btn = st.columns([1, 2])
-                        with col_img:
-                            st.image(thumb, use_column_width=True)
-                        with col_btn:
-                            st.subheader(title)
-                            # สร้างปุ่ม HTML สวยๆ
-                            st.markdown(f'<a href="{video_url}" target="_blank" class="big-btn">⬇️ คลิกเพื่อดาวน์โหลดทันที</a>', unsafe_allow_html=True)
-                            st.caption("*หากกดแล้ววิดีโอเล่น ให้คลิกขวา/กดค้าง แล้วเลือก 'Save Video As'")
-                    else:
-                        status.error("❌ ไม่พบลิงก์ตรงที่ใช้งานได้ ลองใช้โหมด Server ดูครับ")
+                        status_placeholder.success("✅ พบลิงก์ดาวน์โหลดแล้ว!")
+                        st.subheader(f"🎬 {title}")
+                        st.markdown(f"<small>จาก: {uploader} | ความยาว: {duration}</small>", unsafe_allow_html=True)
+                        if thumbnail:
+                            st.image(thumbnail, width=300, caption="Thumbnail")
 
+                        st.markdown(f"""
+                            <a href="{video_url}" target="_blank" class="big-btn">
+                                ⬇️ คลิกที่นี่เพื่อเริ่มดาวน์โหลดทันที (ผ่าน Browser/IDM)
+                            </a>
+                            <p class='small-text'>*หากคลิกแล้ววิดีโอเล่นอัตโนมัติ ให้คลิกขวาที่วิดีโอ (หรือกดค้างบนมือถือ) แล้วเลือก 'Save Video As...'</p>
+                        """, unsafe_allow_html=True)
+                        st.markdown("---")
+                        st.text_area("หรือคัดลอกลิงก์ตรงนี้ (สำหรับ IDM/โปรแกรมอื่น):", value=video_url, height=100)
+                    else:
+                        status_placeholder.error("❌ ไม่พบลิงก์ดาวน์โหลดที่เหมาะสม ลองเลือกคุณภาพอื่น หรือใช้โหมด Server ดูครับ")
+
+            except yt_dlp.DownloadError as e:
+                status_placeholder.error(f"❌ yt-dlp Error: {e}")
+                if "age-restricted" in str(e).lower() or "login" in str(e).lower():
+                    st.warning("💡 คลิปนี้อาจถูกจำกัดอายุ/ต้องเข้าสู่ระบบ ลองอัปโหลด Cookies ดูครับ")
+                elif "Private video" in str(e):
+                    st.warning("💡 คลิปนี้เป็นส่วนตัว ลองอัปโหลด Cookies ดูครับ")
+                elif "403 Forbidden" in str(e):
+                    st.warning("💡 Server อาจโดนบล็อก IP ลองอัปโหลด Cookies หรือใช้โหมด Server ดูครับ")
             except Exception as e:
-                status.error(f"❌ เกิดข้อผิดพลาด: {e}")
+                status_placeholder.error(f"❌ เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
 
 # ==========================================
-# 📍 TAB 2: Server Download (โหลดผ่าน Cloud)
+# 📍 TAB 2: Server Download (สำรอง & สำหรับ PC)
 # ==========================================
 with tab2:
-    st.write("โหมดนี้ Server จะโหลดไฟล์มาพักไว้ แล้วค่อยส่งให้คุณ (ใช้เวลานานกว่า แต่แก้ปัญหาลิงก์ตรงเสียได้)")
+    st.markdown("<div class='info-card'><p>💾 <b>โหมดดาวน์โหลดผ่าน Server:</b> Server ของเราจะดาวน์โหลดไฟล์วิดีโอมาเก็บไว้ชั่วคราว แล้วส่งให้คุณเป็นไฟล์</p><p class='small-text'>โหมดนี้เหมาะสำหรับ: <b>PC ของคุณเอง (แรงกว่า)</b> หรือใช้เป็นตัวเลือกสำรองเมื่อโหมด Link Generator ไม่ได้ผล</p></div>", unsafe_allow_html=True)
     
-    if st.button("💾 ดาวน์โหลดผ่าน Server"):
+    st.markdown("<h5>เลือกคุณภาพที่ต้องการ (ต้องมี FFmpeg สำหรับ 1080p/4K):</h5>", unsafe_allow_html=True)
+    server_quality = st.radio(" ", 
+        ("Best (4K/8K ถ้ามี - ต้องมี FFmpeg)", "1080p (Full HD - ต้องมี FFmpeg)", "720p (HD - ปลอดภัย)", "Audio Only (MP3)"),
+        key='server_download_quality_radio')
+
+    if st.button("🚀 เริ่มดาวน์โหลดผ่าน Server", use_container_width=True):
         if not url:
-            st.warning("⚠️ กรุณาใส่ลิงก์ก่อนครับ")
+            st.error("⚠️ กรุณาใส่ลิงก์วิดีโอก่อนครับ")
         else:
-            download_folder = "downloads"
-            if not os.path.exists(download_folder): os.makedirs(download_folder)
+            status_placeholder_server = st.empty()
+            progress_bar = st.progress(0)
             
-            status2 = st.empty()
-            status2.info("⏳ Server กำลังดาวน์โหลด... (อาจใช้เวลาสักพัก)")
-            
-            # การตั้งค่าแบบ Safe Mode (ไม่ใช้ FFmpeg เพื่อกัน Error บน Cloud)
+            # progress_hook สำหรับอัปเดตสถานะแบบ Real-time
+            def progress_hook(d):
+                if d['status'] == 'downloading':
+                    try:
+                        p = d.get('_percent_str', '0%').replace('%','').strip()
+                        speed = d.get('_speed_str', 'N/A')
+                        eta = d.get('_eta_str', 'N/A')
+                        if p.replace('.', '', 1).isdigit(): # ตรวจสอบว่าเป็นตัวเลขก่อนแปลง
+                            progress_bar.progress(int(float(p)))
+                            status_placeholder_server.info(f"⚡ กำลังโหลด: {p}% | Speed: {speed} | ETA: {eta}")
+                    except ValueError:
+                        pass # Ignore if percent_str is not a valid number
+                elif d['status'] == 'finished':
+                    progress_bar.progress(100)
+                    status_placeholder_server.success("✅ ดาวน์โหลดเสร็จสิ้น! กำลังรวมไฟล์...")
+
             ydl_opts_server = {
-                'outtmpl': f'{download_folder}/%(title)s.%(ext)s',
+                'outtmpl': f'{DOWNLOAD_FOLDER}/%(title)s.%(ext)s',
                 'quiet': True,
                 'no_warnings': True,
-                # สูตร Safe: เอา MP4 ที่ดีที่สุดที่มีอยู่แล้ว (ไม่ Merge) ไม่เกิน 720p
-                'format': 'best[ext=mp4][height<=720]/best[ext=mp4]/best',
-                'user_agent': get_user_agent(),
+                'user_agent': get_random_user_agent(),
+                'nocheckcertificate': True,
+                'progress_hooks': [progress_hook], # เพิ่ม Progress Bar
             }
             if cookie_path: ydl_opts_server['cookiefile'] = cookie_path
+            
+            # กำหนด format ตามคุณภาพที่เลือก
+            if server_quality == "Best (4K/8K ถ้ามี - ต้องมี FFmpeg)":
+                if IS_FFMPEG_READY: ydl_opts_server['format'] = 'bestvideo+bestaudio/best'
+                else: st.error("❌ โหมดนี้ต้องมี FFmpeg ครับ"); return
+            elif server_quality == "1080p (Full HD - ต้องมี FFmpeg)":
+                if IS_FFMPEG_READY: ydl_opts_server['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+                else: st.error("❌ โหมดนี้ต้องมี FFmpeg ครับ"); return
+            elif server_quality == "720p (HD - ปลอดภัย)":
+                ydl_opts_server['format'] = 'best[ext=mp4][height<=720]/best[ext=mp4]/best' # Safe format without merge
+            elif server_quality == "Audio Only (MP3)":
+                ydl_opts_server['format'] = 'bestaudio/best'
+                if IS_FFMPEG_READY: ydl_opts_server['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192',}]
+                else: st.warning("💡 ไม่มี FFmpeg จะได้ไฟล์เสียงนามสกุล .webm/.m4a แทน MP3 ครับ")
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts_server) as ydl:
                     info = ydl.extract_info(url, download=True)
                     filename = ydl.prepare_filename(info)
-                    
+
                     # Fix: บางทีชื่อไฟล์เปลี่ยน หรือหาไม่เจอ
                     if not os.path.exists(filename):
                         base = os.path.splitext(filename)[0]
-                        for f in os.listdir(download_folder):
-                            if base in os.path.join(download_folder, f):
-                                filename = os.path.join(download_folder, f)
+                        for f in os.listdir(DOWNLOAD_FOLDER):
+                            if base in os.path.join(DOWNLOAD_FOLDER, f):
+                                filename = os.path.join(DOWNLOAD_FOLDER, f)
                                 break
                 
-                status2.success("✅ เรียบร้อย!")
+                status_placeholder_server.success("✅ ดาวน์โหลดเสร็จสมบูรณ์! คลิกปุ่มด้านล่างเพื่อรับไฟล์")
+                st.markdown("---")
                 with open(filename, "rb") as f:
-                    st.download_button("⬇️ รับไฟล์เข้าเครื่อง", f, file_name=os.path.basename(filename), mime="video/mp4")
+                    st.download_button("⬇️ รับไฟล์เข้าเครื่อง", f, file_name=os.path.basename(filename), mime="application/octet-stream", use_container_width=True)
                 
-                # Cleanup ไฟล์หลังโหลดเสร็จเพื่อประหยัดที่ Cloud
-                # os.remove(filename) 
+                # ลบไฟล์หลังดาวน์โหลดเพื่อประหยัดพื้นที่ Cloud/PC
+                st.info("ไฟล์จะถูกลบออกจาก Server เพื่อประหยัดพื้นที่")
+                os.remove(filename)
 
+            except yt_dlp.DownloadError as e:
+                status_placeholder_server.error(f"❌ yt-dlp Error: {e}")
+                if "age-restricted" in str(e).lower() or "login" in str(e).lower():
+                    st.warning("💡 คลิปนี้อาจถูกจำกัดอายุ/ต้องเข้าสู่ระบบ ลองอัปโหลด Cookies ดูครับ")
+                elif "Private video" in str(e):
+                    st.warning("💡 คลิปนี้เป็นส่วนตัว ลองอัปโหลด Cookies ดูครับ")
+                elif "403 Forbidden" in str(e):
+                    st.warning("💡 Server อาจโดนบล็อก IP ลองอัปโหลด Cookies ดูครับ")
             except Exception as e:
-                status2.error(f"❌ Error: {e}")
-
-# --- Cleanup Cookies เมื่อจบการทำงาน ---
+                status_placeholder_server.error(f"❌ เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
+            finally:
+                progress_bar.empty() # Clear progress bar
+                status_placeholder_server.empty() # Clear final status
+                # รีเซ็ตสถานะปุ่มและ Progress Bar
+                
+# --- Cleanup Cookies (ลบไฟล์ Cookies ชั่วคราวหลังใช้งาน) ---
 if cookie_path and os.path.exists(cookie_path):
+    st.sidebar.info("ลบไฟล์ Cookies ชั่วคราว...")
     os.remove(cookie_path)
